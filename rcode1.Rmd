@@ -1,0 +1,301 @@
+```{r}
+library(mlbench)
+library(corrplot)
+library(caret)
+library(car)
+library(ridge)
+library(vars)
+library(glmnet)
+library(kknn)
+library(tree)
+library(e1071)
+
+#data set
+data(BostonHousing)
+BostonHousingdata <- BostonHousing
+str(BostonHousing)
+summary(BostonHousingdata)
+dim(BostonHousingdata)
+#add index column
+attach(BostonHousingdata)
+BostonHousingdata$index <- seq(1,506,1)
+#data grouping
+set.seed(1234)
+BostonHousingfolds <- createFolds(y=BostonHousingdata[,15],k=10)
+
+#correlation coefficient analysis
+correlation <- cor(BostonHousingdata[,c(1,2,3,5,6,7,8,9,10,11,12,13,14)])
+corrplot(correlation, type="upper", order="hclust", tl.col="black", tl.srt=45)
+
+```
+```{r}
+#Linear regression
+lm_model1<-lm(medv~.,BostonHousingdata)
+summary(lm_model1)
+lm_model2<-lm(medv~rad+b+zn+nox+dis+lstat+rm+ptratio+chas+tax,BostonHousingdata)
+summary(lm_model2)
+lm.vif=vif(lm_model2)
+lm.vif
+
+sumRMSE=0
+sumrsquare=0
+sumaccuracy=0
+sumsensitivity=0
+for(i in 1:10){
+  fold_test1 <- BostonHousingdata[BostonHousingfolds[[i]],]  
+  fold_train1 <- BostonHousingdata[-BostonHousingfolds[[i]],]   
+  
+  lm.model <- lm(medv~rad+b+zn+nox+dis+lstat+rm+ptratio+chas+tax,family=binomial(link='logit'),data=fold_train1)
+  fold_predict1 <- predict(lm.model,newdata=fold_test1)
+  fold_test1$lm_predict_test = fold_predict1
+  
+  rsquare=summary(lm.model)$r.squared
+  sumrsquare=sumrsquare+rsquare
+  
+  RMSE=sqrt(sum((fold_test1$medv-fold_test1$lm_predict_test)^2)/nrow(fold_test1))
+  sumRMSE=sumRMSE+RMSE
+  
+  fold_test1$lm_predict_test_01<-ifelse(abs(fold_test1$lm_predict_test-fold_test1$medv)<5,1,0)
+  accuracy=length(which(fold_test1$lm_predict_test_01==1))/nrow(fold_test1)
+  sumaccuracy=accuracy+sumaccuracy
+  
+  sensitivity=sum(fold_test1$lm_predict_test/fold_test1$medv)/nrow(fold_test1)
+  sumsensitivity=sensitivity+sumsensitivity
+}
+meanrsquare1=sumrsquare/10
+meanRMSE1=sumRMSE/10
+meanaccuracy1= sumaccuracy/10
+meansensitivity1=sumsensitivity/10
+meanRMSE1
+meanrsquare1
+meanaccuracy1
+meansensitivity1
+
+
+
+```
+```{r}
+#Ridge regression
+sumRMSE=0
+sumrsquare=0
+sumaccuracy=0
+sumsensitivity=0
+for(i in 1:10){
+  fold_test2 <- BostonHousingdata[BostonHousingfolds[[i]],]  
+  fold_train2 <- BostonHousingdata[-BostonHousingfolds[[i]],]   
+  
+  Ridge.model <- linearRidge(medv~rad+b+zn+nox+dis+lstat+rm+ptratio+chas+tax,data=fold_train2)
+  fold_predict2 <- predict(Ridge.model,newdata=fold_test2)
+  fold_test2$predict_test = fold_predict2
+  
+  MSE=sum((fold_test2$medv-fold_test2$predict_test)^2)/nrow(fold_test2)
+  
+  rsquare=1- (MSE/var(fold_test2$medv))
+  sumrsquare=sumrsquare+rsquare
+ 
+  RMSE= sqrt(MSE)/nrow(fold_test2)
+  sumRMSE=sumRMSE+RMSE
+  
+  fold_test2$predict_test_01<-ifelse(abs(fold_test2$predict_test-fold_test2$medv)<5,1,0)
+  accuracy=length(which(fold_test2$predict_test_01==1))/nrow(fold_test2)
+  sumaccuracy=accuracy+sumaccuracy
+  
+  sensitivity=sum(fold_test2$predict_test/fold_test2$medv)/nrow(fold_test2)
+  sumsensitivity=sensitivity+sumsensitivity
+}
+meanrsquare2=sumrsquare/10
+meanRMSE2=sumRMSE/10
+meanaccuracy2= sumaccuracy/10
+meansensitivity2=sumsensitivity/10
+meanRMSE2
+meanrsquare2
+meanaccuracy2
+meansensitivity2
+
+Ridgemodel<-linearRidge(medv~rad+b+zn+nox+dis+lstat+rm+ptratio+chas+tax,data=BostonHousingdata)
+vif(Ridgemodel)
+```
+
+```{r}
+# Lasso
+xLassodata = data.matrix(BostonHousingdata[,1:13])
+yLassodata = data.matrix(BostonHousingdata[, 14])
+Lasso.model<- glmnet(x=xLassodata,y=yLassodata,alpha=1,family="gaussian")
+Lasso.cv <- cv.glmnet(x=xLassodata,y=yLassodata,type.measure = "mse",alpha=1,family="gaussian")
+plot(Lasso.cv)
+print(Lasso.cv)
+Lassocoef1<-coef(Lasso.cv,s=Lasso.cv$lambda.1se)
+Lassocoef2<-coef(Lasso.cv,s=Lasso.cv$lambda.min)
+Lassocoef1
+Lassocoef2
+
+sumRMSE=0
+sumrsquare=0
+sumaccuracy=0
+sumsensitivity=0
+for(i in 1:10){
+  fold_test3 <- BostonHousingdata[BostonHousingfolds[[i]],-15]  
+  fold_train3 <- BostonHousingdata[-BostonHousingfolds[[i]],-15]   
+ 
+  glm.model <- glm(medv~crim+b+nox+dis+lstat+rm+ptratio+chas,data=fold_train3)
+  
+  fold_predict3 <- predict(glm.model,newdata=fold_test3)
+  fold_test3$predict_test = fold_predict3
+  
+  MSE=sum((fold_test3$medv - fold_test3$predict_test)^2)/nrow(fold_test3)
+  
+  fold_test3$predict_test
+  rsquare=1- (MSE/var(fold_test3$medv))
+  sumrsquare=sumrsquare+rsquare
+  
+  RMSE= sqrt(MSE)/nrow(fold_test3)
+  sumRMSE=sumRMSE+RMSE
+  
+  fold_test3$las_predict_test_01<-ifelse(abs(fold_test3$predict_test-fold_test3$medv)<5,1,0)
+  accuracy=length(which(fold_test3$las_predict_test_01==1))/nrow(fold_test3)
+  sumaccuracy=accuracy+sumaccuracy
+  
+  sensitivity=sum(fold_test3$predict_test/fold_test3$medv)/nrow(fold_test3)
+  sumsensitivity=sensitivity+sumsensitivity
+}
+meanrsquare3=sumrsquare/10
+meanRMSE3=sumRMSE/10
+meanaccuracy3= sumaccuracy/10
+meansensitivity3=sumsensitivity/10
+meanRMSE3
+meanrsquare3
+meanaccuracy3
+meansensitivity3
+vif(glm(medv~crim+b+nox+dis+lstat+rm+ptratio+chas,data=BostonHousingdata))
+
+
+```
+```{r}
+#KNN (k-nearest neighbor)
+Boston.kknn <- train.kknn(medv~.,BostonHousingdata[,c(1:13)],kernel = c("rectangular", "triangular", "epanechnikov", "optimal"),distance=2,scale=T)
+plot(Boston.kknn)
+Boston.kknn$MISCLASS #display error rate
+Boston.kknn#output optimal parameter situation
+
+sumRMSE=0
+sumrsquare=0
+sumaccuracy=0
+sumsensitivity=0
+for(i in 1:10){
+   fold_test4 <- BostonHousingdata[BostonHousingfolds[[i]],-15]  
+   fold_train4 <- BostonHousingdata[-BostonHousingfolds[[i]],-15]   
+  
+   knn.model<- kknn(medv~.,fold_train4,fold_test4,kernel= "triangular",k=4)
+   fold_predict4 <- predict(knn.model,newdata=fold_test4)
+  
+   fold_test4$predict_test = fold_predict4
+   
+   MSE=sum((fold_test4$medv - fold_test4$predict_test)^2)/nrow(fold_test4)
+   
+   rsquare=1- (MSE/var(fold_test4$medv))
+   sumrsquare=sumrsquare+rsquare
+   
+   RMSE= sqrt(MSE)/nrow(fold_test4)
+   sumRMSE=sumRMSE+RMSE
+   
+   fold_test4$knn_predict_test_01<-ifelse(abs(fold_test4$predict_test-fold_test4$medv)<5,1,0)
+   accuracy=length(which(fold_test4$knn_predict_test_01==1))/nrow(fold_test4)
+   sumaccuracy=accuracy+sumaccuracy
+   
+   sensitivity=sum(fold_test4$predict_test/fold_test4$medv)/nrow(fold_test4)
+   sumsensitivity=sensitivity+sumsensitivity
+}
+meanrsquare4=sumrsquare/10
+meanRMSE4=sumRMSE/10
+meanaccuracy4= sumaccuracy/10
+meansensitivity4= sumsensitivity/10
+meanRMSE4
+meanrsquare4
+meanaccuracy4
+meansensitivity4
+```
+```{r}
+#Decision tree regression model 
+sumRMSE=0
+sumrsquare=0
+sumaccuracy=0
+sumsensitivity=0
+for(i in 1:10){
+  fold_test5 <- BostonHousingdata[BostonHousingfolds[[i]],-15]  
+  fold_train5 <- BostonHousingdata[-BostonHousingfolds[[i]],-15]   
+  
+  tree.model<- tree(medv~.,fold_train5)
+  
+  fold_predict5 <- predict(tree.model,newdata=fold_test5)
+  fold_test5$predict_test = fold_predict5
+ 
+  MSE=sum((fold_test5$medv - fold_test5$predict_test)^2)/nrow(fold_test5)
+  
+  rsquare=1- (MSE/var(fold_test5$medv))
+  sumrsquare=sumrsquare+rsquare
+  
+  RMSE= sqrt(MSE)/nrow(fold_test5)
+  sumRMSE=sumRMSE+RMSE
+  
+  fold_test5$tree_predict_test_01<-ifelse(abs(fold_test5$predict_test-fold_test5$medv)<5,1,0)
+  accuracy=length(which(fold_test5$tree_predict_test_01==1))/nrow(fold_test5)
+  sumaccuracy=accuracy+sumaccuracy
+  
+  sensitivity=sum(fold_test5$predict_test/fold_test5$medv)/nrow(fold_test5)
+  sumsensitivity=sensitivity+sumsensitivity
+}
+meanrsquare5=sumrsquare/10
+meanRMSE5=sumRMSE/10
+meanaccuracy5= sumaccuracy/10
+meansensitivity5= sumsensitivity/10
+meanRMSE5
+meanrsquare5
+meanaccuracy5
+meansensitivity5
+
+
+
+
+
+```
+```{r}
+#SVR (support vector regression)
+sumRMSE=0
+sumrsquare=0
+sumaccuracy=0
+sumsensitivity=0
+for(i in 1:10){
+  fold_test6 <- BostonHousingdata[BostonHousingfolds[[i]],-15]  
+  fold_train6 <- BostonHousingdata[-BostonHousingfolds[[i]],-15]   
+  
+  svr.model <- svm(medv~., data = fold_train6,type = "eps-regression",kernel = "radial")
+  
+  fold_predict6 <- predict(svr.model,newdata=fold_test6)
+  fold_test6$predict_test = fold_predict6
+  
+  MSE=sum((fold_test6$medv - fold_test6$predict_test)^2)/nrow(fold_test6)
+  
+  rsquare=1- (MSE/var(fold_test6$medv))
+  sumrsquare=sumrsquare+rsquare
+  
+  RMSE= sqrt(MSE)/nrow(fold_test6)
+  sumRMSE=sumRMSE+RMSE
+  
+  fold_test6$svr_predict_test_01<-ifelse(abs(fold_test6$predict_test-fold_test6$medv)<5,1,0)
+  accuracy=length(which(fold_test6$svr_predict_test_01==1))/nrow(fold_test6)
+  sumaccuracy=accuracy+sumaccuracy
+  
+  sensitivity=sum(fold_test6$predict_test/fold_test6$medv)/nrow(fold_test6)
+  sumsensitivity=sensitivity+sumsensitivity
+}
+meanrsquare6=sumrsquare/10
+meanRMSE6=sumRMSE/10
+meanaccuracy6= sumaccuracy/10
+meansensitivity6= sumsensitivity/10
+meanRMSE6
+meanrsquare6
+meanaccuracy6
+meansensitivity6
+
+```
+
